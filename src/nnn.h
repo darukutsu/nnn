@@ -132,18 +132,18 @@ struct key {
 static struct key bindings[] = {
 	/* Back */
 	{ KEY_LEFT,       SEL_BACK },
-	{ 'h',            SEL_BACK },
+	{ 'm',            SEL_BACK },
 	/* Inside or select */
 	{ KEY_ENTER,      SEL_OPEN },
 	{ '\r',           SEL_OPEN },
 	/* Pure navigate inside */
 	{ KEY_RIGHT,      SEL_NAV_IN },
-	{ 'l',            SEL_NAV_IN },
+	{ 'i',            SEL_NAV_IN },
 	/* Next */
-	{ 'j',            SEL_NEXT },
+	{ 'n',            SEL_NEXT },
 	{ KEY_DOWN,       SEL_NEXT },
 	/* Previous */
-	{ 'k',            SEL_PREV },
+	{ 'e',            SEL_PREV },
 	{ KEY_UP,         SEL_PREV },
 	/* Page down */
 	{ KEY_NPAGE,      SEL_PGDN },
@@ -156,14 +156,15 @@ static struct key bindings[] = {
 	/* First entry */
 	{ KEY_HOME,       SEL_HOME },
 	{ 'g',            SEL_HOME },
-	{ CONTROL('A'),   SEL_HOME },
+	{ CONTROL('E'),   SEL_HOME },
 	/* Last entry */
 	{ KEY_END,        SEL_END },
 	{ 'G',            SEL_END },
-	{ CONTROL('E'),   SEL_END },
+	{ CONTROL('N'),   SEL_END },
 	/* Go to first file */
 	{ '\'',           SEL_FIRST },
 	/* Jump to an entry number/offset */
+	{ 'j',            SEL_JUMP },
 	{ 'J',            SEL_JUMP },
 	{ CONTROL('Y'),   SEL_YOUNG },
 	/* HOME */
@@ -178,7 +179,7 @@ static struct key bindings[] = {
 	{ 'b',            SEL_BMOPEN },
 	{ CONTROL('_'),   SEL_BMOPEN },
 	/* Connect to server over SSHFS */
-	{ 'c',            SEL_REMOTE },
+	{ 'h',            SEL_REMOTE },
 	/* Cycle contexts in forward direction */
 	{ '\t',           SEL_CYCLE },
 	/* Cycle contexts in reverse direction */
@@ -201,14 +202,13 @@ static struct key bindings[] = {
 	/* Filter */
 	{ '/',            SEL_FLTR },
 	/* Toggle filter mode */
-	{ CONTROL('N'),   SEL_MFLTR },
+	{ CONTROL('F'),   SEL_MFLTR },
 	/* Toggle hide .dot files */
 	{ '.',            SEL_HIDDEN },
 	/* Detailed listing */
 	{ 'd',            SEL_DETAIL },
 	/* File details */
 	{ 'f',            SEL_STATS },
-	{ CONTROL('F'),   SEL_STATS },
 	/* Toggle executable status */
 	{ '*',            SEL_CHMODX },
 	/* Create archive */
@@ -222,13 +222,13 @@ static struct key bindings[] = {
 	{ ' ',            SEL_SEL },
 	{ '+',            SEL_SEL },
 	/* Toggle select multiple files */
-	{ 'm',            SEL_SELMUL },
+	{ 'M',            SEL_SELMUL },
 	/* Select all files in current dir */
 	{ 'a',            SEL_SELALL },
 	/* Invert selection in current dir */
 	{ 'A',            SEL_SELINV },
 	/* List, edit selection */
-	{ 'E',            SEL_SELEDIT },
+	{ 'l',            SEL_SELEDIT },
 	/* Copy from selection buffer */
 	{ 'p',            SEL_CP },
 	{ CONTROL('P'),   SEL_CP },
@@ -236,6 +236,8 @@ static struct key bindings[] = {
 	{ 'v',            SEL_MV },
 	{ CONTROL('V'),   SEL_MV },
 	/* Copy/move from selection buffer and rename */
+	{ 'P',            SEL_CPMVAS },
+	{ 'V',            SEL_CPMVAS },
 	{ 'w',            SEL_CPMVAS },
 	{ CONTROL('W'),   SEL_CPMVAS },
 	/* Delete from selection buffer */
@@ -245,19 +247,21 @@ static struct key bindings[] = {
 	{ 'o',            SEL_OPENWITH },
 	{ CONTROL('O'),   SEL_OPENWITH },
 	/* Create a new file */
-	{ 'n',            SEL_NEW },
+	{ 'c',            SEL_NEW },
 	/* Show rename prompt */
+	{ 'R',            SEL_RENAME },
 	{ CONTROL('R'),   SEL_RENAME },
 	/* Rename contents of current dir */
 	{ 'r',            SEL_RENAMEMUL },
 	/* Disconnect a SSHFS mount point */
 	{ 'u',            SEL_UMOUNT },
+	{ 'H',            SEL_UMOUNT },
 	/* Show help */
 	{ '?',            SEL_HELP },
 	/* Toggle auto-advance on file open */
 	{ CONTROL('J'),   SEL_AUTONEXT },
 	/* Edit in EDITOR */
-	{ 'e',            SEL_EDIT },
+	{ 'y',            SEL_EDIT },
 	/* Run a plugin */
 	{ ';',            SEL_PLUGIN },
 	/* Show total size of listed selection */
