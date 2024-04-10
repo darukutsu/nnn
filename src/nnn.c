@@ -589,7 +589,7 @@ static char * const utils[] = {
 	".nmv",
 	"trash-put",
 	"gio trash",
-	"rm -rf",
+	"rm -rf --",
 	"archivemount",
 };
 
@@ -741,10 +741,10 @@ static const char * const envs[] = {
 #define T_CHANGE 1
 #define T_MOD    2
 
-#define PROGRESS_CP   "cpg -giRp"
-#define PROGRESS_MV   "mvg -gi"
-static char cp[sizeof PROGRESS_CP] = "cp -iRp";
-static char mv[sizeof PROGRESS_MV] = "mv -i";
+#define PROGRESS_CP   "cpg -giRp --"
+#define PROGRESS_MV   "mvg -gi --"
+static char cp[sizeof PROGRESS_CP] = "cp -iRp --";
+static char mv[sizeof PROGRESS_MV] = "mv -i --";
 
 /* Archive commands */
 static char * const archive_cmd[] = {"atool -a", "bsdtar -acvf", "zip -r", "tar -acvf"};
@@ -1551,12 +1551,13 @@ static void xdelay(useconds_t delay)
 	usleep(delay);
 }
 
-static char confirm_force(bool selection)
+static char confirm_force(bool selection, bool use_trash)
 {
 	char str[64];
 
+	/* Note: ideally we should use utils[UTIL_RM_RF] instead of the "rm -rf" string */
 	snprintf(str, 64, messages[MSG_FORCE_RM],
-		 g_state.trash ? utils[UTIL_GIO_TRASH] + 4 : utils[UTIL_RM_RF],
+		 use_trash ? utils[UTIL_GIO_TRASH] + 4 : "rm -rf",
 		 (selection ? "selected" : "hovered"));
 
 	int r = get_input(str);
@@ -1565,7 +1566,7 @@ static char confirm_force(bool selection)
 		return '\0'; /* cancel */
 	if (r == 'y' || r == 'Y')
 		return 'f'; /* forceful for rm */
-	return (g_state.trash ? '\0' : 'i'); /* interactive for rm */
+	return (use_trash ? '\0' : 'i'); /* interactive for rm */
 }
 
 /* Writes buflen char(s) from buf to a file */
@@ -2548,14 +2549,14 @@ static void opstr(char *buf, char *op)
 	snprintf(buf, CMD_LEN_MAX, "xargs -0 sh -c '%s \"$0\" \"$@\" . < /dev/tty' < %s", op, selpath);
 }
 
-static bool rmmulstr(char *buf)
+static bool rmmulstr(char *buf, bool use_trash)
 {
-	char r = confirm_force(TRUE);
+	char r = confirm_force(TRUE, use_trash);
 	if (!r)
 		return FALSE;
 
-	if (!g_state.trash)
-		snprintf(buf, CMD_LEN_MAX, "xargs -0 sh -c 'rm -%cr \"$0\" \"$@\" < /dev/tty' < %s",
+	if (!use_trash)
+		snprintf(buf, CMD_LEN_MAX, "xargs -0 sh -c 'rm -%cr -- \"$0\" \"$@\" < /dev/tty' < %s",
 			 r, selpath);
 	else
 		snprintf(buf, CMD_LEN_MAX, "xargs -0 %s < %s",
@@ -2565,17 +2566,17 @@ static bool rmmulstr(char *buf)
 }
 
 /* Returns TRUE if file is removed, else FALSE */
-static bool xrm(char * const fpath)
+static bool xrm(char * const fpath, bool use_trash)
 {
-	char r = confirm_force(FALSE);
+	char r = confirm_force(FALSE, use_trash);
 	if (!r)
 		return FALSE;
 
-	if (!g_state.trash) {
+	if (!use_trash) {
 		char rm_opts[] = "-ir";
 
 		rm_opts[1] = r;
-		spawn("rm", rm_opts, fpath, NULL, F_NORMAL | F_CHKRTN);
+		spawn("rm", rm_opts, "--", fpath, F_NORMAL | F_CHKRTN);
 	} else
 		spawn(utils[(g_state.trash == 1) ? UTIL_TRASH_CLI : UTIL_GIO_TRASH],
 		      fpath, NULL, NULL, F_NORMAL | F_MULTI);
@@ -2702,8 +2703,8 @@ static bool cpmvrm_selection(enum action sel, char *path)
 			return FALSE;
 		}
 		break;
-	default: /* SEL_RM */
-		if (!rmmulstr(g_buf)) {
+	default: /* SEL_TRASH, SEL_RM_ONLY */
+		if (!rmmulstr(g_buf, g_state.trash && sel == SEL_TRASH)) {
 			printmsg(messages[MSG_CANCEL]);
 			return FALSE;
 		}
@@ -2728,7 +2729,7 @@ static bool batch_rename(void)
 	bool dir = FALSE, ret = FALSE;
 	char foriginal[TMP_LEN_MAX] = {0};
 	static const char batchrenamecmd[] = "paste -d'\n' %s %s | "SED" 'N; /^\\(.*\\)\\n\\1$/!p;d' | "
-					     "tr '\n' '\\0' | xargs -0 -n2 sh -c 'mv -i \"$0\" \"$@\" <"
+					     "tr '\n' '\\0' | xargs -0 -n2 sh -c 'mv -i -- \"$0\" \"$@\" <"
 					     " /dev/tty'";
 	char buf[sizeof(batchrenamecmd) + (PATH_MAX << 1)];
 	int i = get_cur_or_sel();
@@ -4731,7 +4732,7 @@ next:
 			return FALSE;
 		}
 	} else {
-		int fd = open(path, O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR); /* Forced create mode for files */
+		int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IWUSR | S_IRUSR); /* Forced create mode for files */
 
 		if (fd == -1 && errno != EEXIST) {
 			DPRINTF_S("open!");
@@ -5173,10 +5174,10 @@ static void show_help(const char *path)
 		  "c*  Toggle exe%14>  Export list\n"
 	    "6Space +  (Un)select%12M-M  Select range/clear\n"
 	          "ca  Select all%14A  Invert sel\n"
-	       "9p ^P  Copy here%12w ^W P V  Cp/mv sel as\n"
-	       "9v ^V  Move here%15l  Edit sel list\n"
-	       "9x ^X  Delete%18S  Listed sel size\n"
-		"aEsc  Send to FIFO\n"
+	       "9p ^P  Copy here%12w ^W  Cp/mv sel as\n"
+	       "9v ^V  Move here%15E  Edit sel list\n"
+	       "9x ^X  Delete or trash%09S  Listed sel size\n"
+		  "cX  Delete (rm -rf)%07Esc  Send to FIFO\n"
 	"0\n"
 	"1MISC\n"
 	      "8Alt ;  Select plugin%11=  Launch app\n"
@@ -7651,9 +7652,10 @@ nochange:
 		case SEL_CP: // fallthrough
 		case SEL_MV: // fallthrough
 		case SEL_CPMVAS: // fallthrough
-		case SEL_RM:
+		case SEL_TRASH: // fallthrough
+		case SEL_RM_ONLY:
 		{
-			if (sel == SEL_RM) {
+			if (sel == SEL_TRASH || sel == SEL_RM_ONLY) {
 				r = get_cur_or_sel();
 				if (!r) {
 					statusbar(path);
@@ -7664,7 +7666,7 @@ nochange:
 					tmp = (listpath && xstrcmp(path, listpath) == 0)
 					      ? listroot : path;
 					mkpath(tmp, pdents[cur].name, newpath);
-					if (!xrm(newpath))
+					if (!xrm(newpath, g_state.trash && sel == SEL_TRASH))
 						continue;
 
 					xrmfromsel(tmp, newpath);
@@ -7860,7 +7862,7 @@ nochange:
 			if (sel == SEL_RENAME) {
 				/* Rename the file */
 				if (ret == 'd')
-					spawn("cp -rp", pdents[cur].name, tmp, NULL, F_SILENT);
+					spawn("cp -rp --", pdents[cur].name, tmp, NULL, F_SILENT);
 				else if (rename(pdents[cur].name, tmp) != 0) {
 					printwarn(&presel);
 					goto nochange;
