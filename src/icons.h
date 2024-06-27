@@ -103,6 +103,7 @@
 #define ICON_VIDEOS        ICON_STR(FA_FILM, "󰈰", "🎞 ")
 #define ICON_VIM           ICON_STR(DEV_VIM, "", "")
 #define ICON_WORDDOC       ICON_STR(FILE_WORD, "󰈬", "📘")
+#define ICON_ZIG	   ICON_STR(DEV_ZIG, "", "")
 
 #define ICON_EXT_ASM       ICON_STR(FILE_NASM, "", "")
 #define ICON_EXT_BIN       ICON_STR(OCT_FILE_BINARY, "", "📓")
@@ -141,6 +142,7 @@
 	COLOR_X(COLOR_AUDIO1,       205)  /* HotPink */ \
 	COLOR_X(COLOR_IMAGE,         82)  /* Chartreuse2 */ \
 	COLOR_X(COLOR_DOCS,         202)  /* OrangeRed1 */ \
+	COLOR_X(COLOR_ZIG,          214)  /* Orange */ \
 	COLOR_X(COLOR_ARCHIVE,      209)  /* Salmon1 */ \
 	COLOR_X(COLOR_C,             81)  /* SteelBlue1 */ \
 	COLOR_X(COLOR_JAVA,          32)  /* DeepSkyBlue3 */ \
@@ -433,6 +435,7 @@ static const struct icon_pair icons_ext[] = { /* All entries are case-insensitiv
 
 	/* Z */
 	{"zip",        ICON_ARCHIVE,        COLOR_ARCHIVE},
+	{"zig",	       ICON_ZIG,	    COLOR_ZIG},
 	{"zsh",        ICON_SCRIPT,         COLOR_SHELL},
 	{"zst",        ICON_ARCHIVE,        COLOR_ARCHIVE},
 
