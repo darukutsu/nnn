@@ -3861,6 +3861,10 @@ static bool parsekvpair(kv **arr, char **envcpy, const uchar_t id, uchar_t *item
 	ptr = *envcpy;
 
 	while (*ptr && i < 100) {
+		if (*ptr == '\n') {
+			++ptr;
+		}
+
 		if (new) {
 			if (!(i & (INCR - 1))) {
 				kvarr = xrealloc(kvarr, sizeof(kv) * (i + INCR));
