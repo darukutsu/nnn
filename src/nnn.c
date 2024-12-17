@@ -2834,15 +2834,16 @@ static char *get_archive_cmd(const char *archive)
 
 static void archive_selection(const char *cmd, const char *archive)
 {
-	char *buf = malloc((xstrlen(patterns[P_ARCHIVE_CMD]) + xstrlen(cmd) + xstrlen(archive)
-	                   + xstrlen(selpath)) * sizeof(char));
+	size_t len = xstrlen(patterns[P_ARCHIVE_CMD]) + xstrlen(cmd) + xstrlen(archive)
+	            + xstrlen(selpath) + 1;
+	char *buf = malloc(len);
 	if (!buf) {
 		DPRINTF_S(strerror(errno));
 		printwarn(NULL);
 		return;
 	}
 
-	snprintf(buf, CMD_LEN_MAX, patterns[P_ARCHIVE_CMD], cmd, archive, selpath);
+	snprintf(buf, len, patterns[P_ARCHIVE_CMD], cmd, archive, selpath);
 	spawn(utils[UTIL_SH_EXEC], buf, NULL, NULL, F_CLI | F_CONFIRM);
 	free(buf);
 }
@@ -4546,7 +4547,7 @@ static bool load_session(const char *sname, char **path, char **lastdir, char **
 	*lastdir = g_ctx[cfg.curctx].c_last;
 	*lastname = g_ctx[cfg.curctx].c_name;
 	set_sort_flags('\0'); /* Set correct sort options */
-	xstrsncpy(curssn, sname, NAME_MAX);
+	xstrsncpy(curssn, sname ? sname : "@", NAME_MAX);
 	status = TRUE;
 
 END:
@@ -5305,7 +5306,7 @@ static void show_help(const char *path)
 	fprintf(f, "\nCONTEXTS\n");
 	for (uchar_t i = 0; i < CTX_MAX; ++i)
 		if (g_ctx[i].c_cfg.ctxactive)
-			fprintf(f, " %u: %s\n", i + 1, g_ctx[i].c_path);
+			fprintf(f, " %u%c %s\n", i + 1, (cfg.curctx == i) ? '*' : ' ', g_ctx[i].c_path);
 
 	fprintf(f, "\nVOLUME: avail:%s ", coolsize(get_fs_info(path, VFS_AVAIL)));
 	fprintf(f, "used:%s ", coolsize(get_fs_info(path, VFS_USED)));
@@ -5532,6 +5533,9 @@ static bool run_plugin(char **path, const char *file, char *runfile, char **last
 
 		if (wfd == -1)
 			_exit(EXIT_FAILURE);
+
+		/* Restore sigpipe handler to default */
+		sigaction(SIGPIPE, &(struct sigaction){.sa_handler = SIG_DFL}, NULL);
 
 		if (!cmd_as_plugin) {
 			char *sel = NULL;
