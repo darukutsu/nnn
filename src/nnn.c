@@ -7853,7 +7853,9 @@ nochange:
 			char *open_with = getenv("NNN_OPENWITH");
 			if (open_with != NULL) {
 				spawn(open_with, pdents[cur].name, path, NULL, F_CLI | F_TTY);
-				goto nochange;
+				clearselection(); // no need for clearing NNN_PIPE manually
+				//goto nochange; // maybe rework so script handles these things instead
+				goto begin;
 			}
 			__attribute__ ((fallthrough));
 		}
