@@ -87,8 +87,9 @@
 #include <readline/history.h>
 #include <readline/readline.h>
 #endif
-#ifdef PCRE
-#include <pcre.h>
+#ifdef PCRE2
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
 #else
 #include <regex.h>
 #endif
@@ -210,7 +211,8 @@
 #define EXEC_ARGS_MAX   10
 #define LIST_FILES_MAX  (1 << 14) /* Support listing 16K files */
 #define LIST_INPUT_MAX  ((size_t)LIST_FILES_MAX * PATH_MAX)
-#define SCROLLOFF       3
+#define SCROLLOFF       3 /* Leave top 2 lines */
+#define ONSCREEN        (xlines - 4) /* Leave top 2 and bottom 2 lines */
 #define COLOR_256       256
 #define CREATE_NEW_KEY  (-1)
 
@@ -331,8 +333,8 @@ typedef struct {
 } kv;
 
 typedef struct {
-#ifdef PCRE
-	const pcre *pcrex;
+#ifdef PCRE2
+	const pcre2_code *pcre2x;
 #else
 	const regex_t *regex;
 #endif
@@ -484,8 +486,8 @@ static uchar_t blk_shift = BLK_SHIFT_512;
 #ifndef NOMOUSE
 static int middle_click_key;
 #endif
-#ifdef PCRE
-static pcre *archive_pcre;
+#ifdef PCRE2
+static pcre2_code *archive_pcre2;
 #else
 static regex_t archive_re;
 #endif
@@ -1442,12 +1444,6 @@ static void msg(const char *message)
 	fprintf(stderr, "%s\n", message);
 }
 
-static void clearinfoln(void)
-{
-	move(xlines - 2, 0);
-	clrtoeol();
-}
-
 #ifdef KEY_RESIZE
 static void handle_key_resize(void)
 {
@@ -1455,13 +1451,11 @@ static void handle_key_resize(void)
 	refresh();
 }
 
-/* Clear the old prompt */
+/* Clear the old prompt from the info line to the botton of the screen */
 static void clearoldprompt(void)
 {
-	clearinfoln();
-
-	tolastln();
-	clrtoeol();
+	move(xlines - 2, 0);
+	clrtobot();
 	handle_key_resize();
 }
 #endif
@@ -3002,22 +2996,21 @@ static int xstrverscasecmp(const char * const s1, const char * const s2)
 static int (*namecmpfn)(const char * const s1, const char * const s2) = &xstricmp;
 
 static char * (*fnstrstr)(const char *haystack, const char *needle) = &strcasestr;
-#ifdef PCRE
+#ifdef PCRE2
 static const unsigned char *tables;
-static int pcreflags = PCRE_NO_AUTO_CAPTURE | PCRE_EXTENDED | PCRE_CASELESS | PCRE_UTF8;
+static int pcre2flags = PCRE2_NO_AUTO_CAPTURE | PCRE2_EXTENDED | PCRE2_CASELESS | PCRE2_UTF;
 #else
 static int regflags = REG_NOSUB | REG_EXTENDED | REG_ICASE;
 #endif
 
-#ifdef PCRE
-static int setfilter(pcre **pcrex, const char *filter)
+#ifdef PCRE2
+static int setfilter(pcre2_code **pcre2x, const char *filter)
 {
-	const char *errstr = NULL;
-	int erroffset = 0;
+	int errcode;
+	PCRE2_SIZE erroffset;
 
-	*pcrex = pcre_compile(filter, pcreflags, &errstr, &erroffset, tables);
-
-	return errstr ? -1 : 0;
+	*pcre2x = pcre2_compile((PCRE2_SPTR)filter, PCRE2_ZERO_TERMINATED, pcre2flags, &errcode, &erroffset, NULL);
+	return *pcre2x ? 0 : -1;
 }
 #else
 static int setfilter(regex_t *regex, const char *filter)
@@ -3028,8 +3021,16 @@ static int setfilter(regex_t *regex, const char *filter)
 
 static int visible_re(const fltrexp_t *fltrexp, const char *fname)
 {
-#ifdef PCRE
-	return pcre_exec(fltrexp->pcrex, NULL, fname, xstrlen(fname), 0, 0, NULL, 0) == 0;
+#ifdef PCRE2
+	int r = 0;
+	pcre2_match_data *match_data = pcre2_match_data_create_from_pattern(fltrexp->pcre2x, NULL);
+
+	if (match_data) {
+		r = pcre2_match(fltrexp->pcre2x, (PCRE2_SPTR)fname, xstrlen(fname), 0, 0, match_data, NULL);
+		pcre2_match_data_free(match_data);
+	}
+
+	return r > 0;
 #else
 	return regexec(fltrexp->regex, fname, 0, NULL, 0) == 0;
 #endif
@@ -3287,11 +3288,9 @@ static void showfilterinfo(void)
 
 	if (cfg.fileinfo && ndents && get_output("file", "-b", pdents[cur].name, -1, FALSE))
 		mvaddstr(xlines - 2, 2, g_buf);
-	else {
-		snprintf(info + i, REGEX_MAX - i - 1, "  %s [/], %4s [:]",
-			 (cfg.regex ? "reg" : "str"),
-			 ((fnstrstr == &strcasestr) ? "ic" : "noic"));
-	}
+	else
+		snprintf(info + i, REGEX_MAX - i - 1, "  %s [/], %s [:]",
+			 (cfg.regex ? "reg" : "str"), ((fnstrstr == &strcasestr) ? "ic" : "noic"));
 
 	mvaddstr(xlines - 2, xcols - xstrlen(info), info);
 }
@@ -3300,8 +3299,8 @@ static void showfilter(char *str)
 {
 	attron(COLOR_PAIR(cfg.curctx + 1));
 	showfilterinfo();
-	printmsg(str);
-	// printmsg calls attroff()
+	printmsg_nc(str);
+	attroff(COLOR_PAIR(cfg.curctx + 1));
 }
 
 static inline void swap_ent(int id1, int id2)
@@ -3313,14 +3312,14 @@ static inline void swap_ent(int id1, int id2)
 	*pdent2 = *(&_dent);
 }
 
-#ifdef PCRE
-static int fill(const char *fltr, pcre *pcrex)
+#ifdef PCRE2
+static int fill(const char *fltr, pcre2_code *pcre2x)
 #else
 static int fill(const char *fltr, regex_t *re)
 #endif
 {
-#ifdef PCRE
-	fltrexp_t fltrexp = { .pcrex = pcrex, .str = fltr };
+#ifdef PCRE2
+	fltrexp_t fltrexp = { .pcre2x = pcre2x, .str = fltr };
 #else
 	fltrexp_t fltrexp = { .regex = re, .str = fltr };
 #endif
@@ -3341,17 +3340,17 @@ static int fill(const char *fltr, regex_t *re)
 
 static int matches(const char *fltr)
 {
-#ifdef PCRE
-	pcre *pcrex = NULL;
+#ifdef PCRE2
+	pcre2_code *pcre2x = NULL;
 
 	/* Search filter */
-	if (cfg.regex && setfilter(&pcrex, fltr))
+	if (cfg.regex && setfilter(&pcre2x, fltr))
 		return -1;
 
-	ndents = fill(fltr, pcrex);
+	ndents = fill(fltr, pcre2x);
 
 	if (cfg.regex)
-		pcre_free(pcrex);
+		pcre2_code_free(pcre2x);
 #else
 	regex_t re;
 
@@ -3519,8 +3518,8 @@ static int filterentries(char *path, char *lastname)
 			/* Toggle case-sensitivity */
 			if (*ch == CASE) {
 				fnstrstr = (fnstrstr == &strcasestr) ? &strstr : &strcasestr;
-#ifdef PCRE
-				pcreflags ^= PCRE_CASELESS;
+#ifdef PCRE2
+				pcre2flags ^= PCRE2_CASELESS;
 #else
 				regflags ^= REG_ICASE;
 #endif
@@ -3580,7 +3579,9 @@ static int filterentries(char *path, char *lastname)
 		showfilter(ln);
 	}
 end:
-	clearinfoln();
+	/* Clear the info line after the down arrow */
+	move(xlines - 2, 2);
+	clrtoeol();
 
 	/* Save last working filter in-filter */
 	if (ln[1])
@@ -3708,8 +3709,12 @@ static char *xreadline(const char *prefill, const char *prompt)
 				}
 				continue;
 			case '\t':
-				if (!(len || pos) && ndents)
-					len = pos = mbstowcs(buf, pdents[cur].name, READLINE_MAX);
+				if ((len == pos) && ndents && (pos < (READLINE_MAX - xstrlen(pdents[cur].name)))) {
+					buf[pos] = '\0';
+					lpos = mbstowcs(NULL, pdents[cur].name, MB_CUR_MAX);
+					pos += mbstowcs(buf + wcslen(buf), pdents[cur].name, lpos);
+					len = pos;
+				}
 				continue;
 			case CONTROL('F'):
 				if (pos < len)
@@ -6209,8 +6214,6 @@ static void send_to_explorer(int *presel)
 
 static void move_cursor(int target, int ignore_scrolloff)
 {
-	int onscreen = xlines - 4; /* Leave top 2 and bottom 2 lines */
-
 	target = MAX(0, MIN(ndents - 1, target));
 	last_curscroll = curscroll;
 	last = cur;
@@ -6218,7 +6221,7 @@ static void move_cursor(int target, int ignore_scrolloff)
 
 	if (!ignore_scrolloff) {
 		int delta = target - last;
-		int scrolloff = MIN(SCROLLOFF, onscreen >> 1);
+		int scrolloff = MIN(SCROLLOFF, ONSCREEN >> 1);
 
 		/*
 		 * When ignore_scrolloff is 1, the cursor can jump into the scrolloff
@@ -6228,11 +6231,11 @@ static void move_cursor(int target, int ignore_scrolloff)
 		 * outward (deeper into the scrolloff margin area).
 		 */
 		if (((cur < (curscroll + scrolloff)) && delta < 0)
-		    || ((cur > (curscroll + onscreen - scrolloff - 1)) && delta > 0))
+		    || ((cur > (curscroll + ONSCREEN - scrolloff - 1)) && delta > 0))
 			curscroll += delta;
 	}
-	curscroll = MIN(curscroll, MIN(cur, ndents - onscreen));
-	curscroll = MAX(curscroll, MAX(cur - (onscreen - 1), 0));
+	curscroll = MIN(curscroll, MIN(cur, ndents - ONSCREEN));
+	curscroll = MAX(curscroll, MAX(cur - (ONSCREEN - 1), 0));
 
 #ifndef NOFIFO
 	if (!g_state.fifomode)
@@ -6242,8 +6245,6 @@ static void move_cursor(int target, int ignore_scrolloff)
 
 static void handle_screen_move(enum action sel)
 {
-	int onscreen;
-
 	switch (sel) {
 	case SEL_NEXT:
 		if (cfg.rollover || (cur != ndents - 1))
@@ -6254,24 +6255,20 @@ static void handle_screen_move(enum action sel)
 			move_cursor((cur + ndents - 1) % ndents, 0);
 		break;
 	case SEL_PGDN:
-		onscreen = xlines - 4;
-		move_cursor(curscroll + (onscreen - 1), 1);
-		curscroll += onscreen - 1;
+		move_cursor(curscroll + (ONSCREEN - 1), 1);
+		curscroll += ONSCREEN - 1;
 		break;
 	case SEL_CTRL_D:
-		onscreen = xlines - 4;
-		move_cursor(curscroll + (onscreen - 1), 1);
-		curscroll += onscreen >> 1;
+		move_cursor(curscroll + (ONSCREEN - 1), 1);
+		curscroll += ONSCREEN >> 1;
 		break;
 	case SEL_PGUP:
-		onscreen = xlines - 4;
 		move_cursor(curscroll, 1);
-		curscroll -= onscreen - 1;
+		curscroll -= ONSCREEN - 1;
 		break;
 	case SEL_CTRL_U:
-		onscreen = xlines - 4;
 		move_cursor(curscroll, 1);
-		curscroll -= onscreen >> 1;
+		curscroll -= ONSCREEN >> 1;
 		break;
 	case SEL_JUMP:
 	{
@@ -6294,9 +6291,8 @@ static void handle_screen_move(enum action sel)
 				break;
 			cur = index - 1;
 		}
-		onscreen = xlines - 4;
 		move_cursor(cur, 1);
-		curscroll -= onscreen >> 1;
+		curscroll -= ONSCREEN >> 1;
 		break;
 	}
 	case SEL_HOME:
@@ -6738,7 +6734,6 @@ static void redraw(char *path)
 	getmaxyx(stdscr, xlines, xcols);
 
 	int ncols = (xcols <= PATH_MAX) ? xcols : PATH_MAX;
-	int onscreen = xlines - 4;
 	int i, j = 1;
 
 	// Fast redraw
@@ -6836,11 +6831,10 @@ static void redraw(char *path)
 		g_state.dircolor = 1;
 	}
 
-	onscreen = MIN(onscreen + curscroll, ndents);
+	int onscreen = MIN(ONSCREEN + curscroll, ndents);
+	int len = scanselforpath(path, FALSE);
 
 	ncols = adjust_cols(ncols);
-
-	int len = scanselforpath(path, FALSE);
 
 	/* Print listing */
 	for (i = curscroll; i < onscreen; ++i) {
@@ -7340,9 +7334,18 @@ nochange:
 
 			/* Get the extension for regex match */
 			tmp = xextension(pent->name, pent->nlen - 1);
-#ifdef PCRE
-			if (tmp && !pcre_exec(archive_pcre, NULL, tmp,
-					      pent->nlen - (tmp - pent->name) - 1, 0, 0, NULL, 0)) {
+#ifdef PCRE2
+			if (tmp) {
+				pcre2_match_data *match_data = pcre2_match_data_create_from_pattern(archive_pcre2, NULL);
+
+				if (match_data) {
+					r = pcre2_match(archive_pcre2, (PCRE2_SPTR)tmp, pent->nlen - (tmp - pent->name) - 1, 0, 0, match_data, NULL);
+					pcre2_match_data_free(match_data);
+				}
+			} else
+				r = 0;
+
+			if (r > 0) {
 #else
 			if (tmp && !regexec(&archive_re, tmp, 0, NULL, 0)) {
 #endif
@@ -9031,8 +9034,8 @@ int main(int argc, char *argv[])
 
 	/* Set archive handling (enveditor used as tmp var) */
 	enveditor = getenv(env_cfg[NNN_ARCHIVE]);
-#ifdef PCRE
-	if (setfilter(&archive_pcre, (enveditor ? enveditor : patterns[P_ARCHIVE]))) {
+#ifdef PCRE2
+	if (setfilter(&archive_pcre2, (enveditor ? enveditor : patterns[P_ARCHIVE]))) {
 #else
 	if (setfilter(&archive_re, (enveditor ? enveditor : patterns[P_ARCHIVE]))) {
 #endif
@@ -9138,8 +9141,8 @@ int main(int argc, char *argv[])
 #ifndef NOLC
 	/* Set locale */
 	setlocale(LC_ALL, "");
-#ifdef PCRE
-	tables = pcre_maketables();
+#ifdef PCRE2
+	tables = pcre2_maketables(NULL);
 #endif
 #endif
 
@@ -9217,8 +9220,8 @@ int main(int argc, char *argv[])
 	rmlistpath();
 
 	/* Free the regex */
-#ifdef PCRE
-	pcre_free(archive_pcre);
+#ifdef PCRE2
+	pcre2_code_free(archive_pcre2);
 #else
 	regfree(&archive_re);
 #endif
